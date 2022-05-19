@@ -1,0 +1,121 @@
+Description: Creates the required network infrastructure
+Parameters:
+
+    EnvironName: 
+        Description: Environment name that would be prefixed to resource names
+        Type: String
+
+    VpcCidr: 
+        Description: VPC CIDR block
+        Type: String
+        Default: "10.0.0.0/16"
+
+    PublicSubnetCIDR: 
+        Description: CIDR range for the public subnet
+        Type: String 
+        Default: "10.0.1.0/24"
+
+    PrivateSubnetCIDR: 
+        Description: CIDR range for the public subnet
+        Type: String 
+        Default: "10.0.2.0/24"
+
+Resources:
+    VPC:
+        Type: AWS::EC2::VPC
+        Properties:
+            CidrBlock: !Ref VpcCidr
+            EnableDnsHostnames: true
+            Tags: 
+                - Key: Name
+                  Value: !Ref EnvironName
+    InternetGW:
+        Type: AWS::EC2::InternetGateway
+        Properties:
+            Tags:
+                - Key: Name
+                  Value: !Ref EnvironName
+
+    AttachInternetGateway:
+        Type: AWS::EC2::VPCGatewayAttachment
+        Properties:
+            InternetGatewayId: !Ref InternetGW
+            VpcId: !Ref VPC
+    
+    PublicSubnet1: 
+        Type: AWS::EC2::Subnet
+        Properties:
+            VpcId: !Ref VPC
+            AvailabilityZone: !Select [ 0, !GetAZs '' ]
+            CidrBlock: !Ref PublicSubnetCIDR
+            MapPublicIpOnLaunch: true
+            Tags: 
+                - Key: Name 
+                  Value: Public
+    
+    PrivateSubnet1: 
+        Type: AWS::EC2::Subnet
+        Properties:
+            VpcId: !Ref VPC
+            AvailabilityZone: !Select [ 0, !GetAZs '' ]
+            CidrBlock: !Ref PrivateSubnetCIDR
+            MapPublicIpOnLaunch: false
+            Tags: 
+                - Key: Name 
+                  Value: Private
+
+    EIP:
+        Type: AWS::EC2::EIP
+        DependsOn: AttachInternetGateway
+        Properties: 
+            Domain: vpc
+
+    NAT: 
+        Type: AWS::EC2::NatGateway
+        Properties: 
+            AllocationId: !GetAtt EIP.AllocationId
+            SubnetId: !Ref PublicSubnet1
+
+    PublicRouteTable:
+        Type: AWS::EC2::RouteTable
+        Properties: 
+            VpcId: !Ref VPC
+            Tags: 
+                - Key: Name 
+                  Value: !Sub ${EnvironName} Public Routes
+
+    PublicInternetRoute: 
+        Type: AWS::EC2::Route
+        DependsOn: AttachInternetGateway
+        Properties: 
+            RouteTableId: !Ref PublicRouteTable
+            DestinationCidrBlock: 0.0.0.0/0
+            GatewayId: !Ref InternetGW
+
+    AssociatePUBRT:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+            RouteTableId: !Ref PublicRouteTable
+            SubnetId: !Ref PublicSubnet1
+
+    PrivateRouteTable:
+        Type: AWS::EC2::RouteTable
+        Properties: 
+            VpcId: !Ref VPC
+            Tags: 
+                - Key: Name 
+                  Value: !Sub ${EnvironName} Private Routes (AZ1)
+
+    PrivateInternetOutboundRoute:
+        Type: AWS::EC2::Route
+        Properties:
+            RouteTableId: !Ref PrivateRouteTable
+            DestinationCidrBlock: 0.0.0.0/0
+            NatGatewayId: !Ref NAT
+
+    AssociatePRIVRT:
+        Type: AWS::EC2::SubnetRouteTableAssociation
+        Properties:
+            RouteTableId: !Ref PrivateRouteTable
+            SubnetId: !Ref PrivateSubnet1
+
